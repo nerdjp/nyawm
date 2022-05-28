@@ -1,4 +1,4 @@
-use xcb::x::{self, Cw, Window};
+use xcb::{x::{self, Cw, Window}, randr};
 use std::vec::Vec;
 
 const GAPPX: i32 = 5;
@@ -25,8 +25,64 @@ struct Monitor {
 }
 
 impl Monitor {
-    pub fn new() -> Monitor {
-        todo!();
+    pub fn new(conn: &xcb::Connection, root: Window) -> Vec<Monitor> {
+        let res: randr::GetScreenResourcesCurrentReply = conn.wait_for_reply(
+            conn.send_request(&randr::GetScreenResourcesCurrent {
+                window: root,
+            })
+        ).unwrap();
+
+        println!("{}", res.length());
+        println!("{}", res.outputs().len());
+        for i in 0..res.length() {
+            let output = conn.wait_for_reply(
+                conn.send_request(
+                    &randr::GetOutputInfo {
+                        output: res.outputs()[i as usize],
+                        config_timestamp: res.timestamp(),
+                    }
+                )
+            );
+
+            match output {
+                Ok(output) => {
+                    if output.connection() == randr::Connection::Disconnected {
+                        continue;
+                    }
+                    let crtc = conn.wait_for_reply(
+                        conn.send_request(
+                            &randr::GetCrtcInfo {
+                                crtc: output.crtc(),
+                                config_timestamp: res.config_timestamp(),
+                            },
+                        )
+                    ).unwrap();
+                    println!("x: {}, y: {}, w: {}, h: {}", crtc.x(), crtc.y(), crtc.width(), crtc.height());
+                },
+                _ => {}
+            }
+        }
+        let monitors = vec![
+            Monitor {
+                number: 0,
+                geometry: 
+                    Rect { 
+                        x: 0,
+                        y: 0,
+                        w: 1280,
+                        h: 720,
+                    },
+                window_area: 
+                    Rect {
+                        x: 0,
+                        y: 0,
+                        w: 1280,
+                        h: 720,
+                    },
+                mfact: 0.55,
+            },
+        ];
+        monitors
     }
 }
 
@@ -41,12 +97,20 @@ struct Client {
 }
 
 impl Client {
-    pub fn new() -> Client {
-        todo!();
+    pub fn new(win: Window) -> Client {
+        Client { 
+            name: "Test".to_string(),
+            geometry: Rect { x: 0, y: 0, w: 0, h: 0 },
+            window: win,
+            border: 2,
+            isfloating: false,
+            isurgent: false,
+            isfullscreen: false
+        }
     }
 }
 
-fn setup() -> xcb::Connection {
+fn setup() -> (xcb::Connection, Vec<Monitor>) {
     let (conn, screen_num) = xcb::Connection::connect(None).unwrap();
 
     let screen = conn.get_setup().roots().nth(screen_num as usize).unwrap();
@@ -75,7 +139,9 @@ fn setup() -> xcb::Connection {
         _ => {},
     };
 
-    conn
+    let monitor = Monitor::new(&conn, screen.root());
+
+    (conn, monitor)
 }
 
 fn tile(monitor: &Monitor, clients: &mut Vec<Client>, conn: &xcb::Connection) {
@@ -136,33 +202,60 @@ fn resize(client: &mut Client, geometry: Rect, conn: &xcb::Connection) {
 
 fn main() {
 
-    let conn = setup();
+    let (conn, monitor) = setup();
     let mut clients: Vec<Client> = Vec::new();
-    let mut monitor: Monitor = Monitor {
-        number: 0,
-        geometry: Rect { x: 0, y: 0, w: 1280, h: 720 },
-        window_area: Rect { x: 0, y: 0, w: 1280, h: 720 },
-        mfact: 0.55,
-    };
-
     loop {
         match conn.wait_for_event().expect("Erron in main event loop") {
             xcb::Event::X(x::Event::MapRequest(map)) => {
-                let client: Client = Client { 
-                    name: "Test".to_string(),
-                    geometry: Rect { x: 0, y: 0, w: 0, h: 0 },
-                    window: map.window(),
-                    border: 2,
-                    isfloating: false,
-                    isurgent: false,
-                    isfullscreen: false
-                };
+                let client = Client::new(map.window());
                 clients.push(client);
-                tile(&monitor, &mut clients, &conn);
+                tile(&monitor[0], &mut clients, &conn);
                 conn.send_request(&x::MapWindow {
                     window: clients.last().unwrap().window,
                 });
                 conn.flush().unwrap();
+
+            }
+            xcb::Event::X(x::Event::UnmapNotify(map)) => {
+                println!("UnmapNotify");
+                for i in 0..clients.len() - 1 {
+                    if clients[i].window == map.window() {
+                        clients.remove(i);
+                        break;
+                    }
+                }
+                tile(&monitor[0], &mut clients, &conn);
+                conn.flush().unwrap();
+            } 
+            xcb::Event::X(x::Event::ClientMessage(_)) => {
+                println!("ClientMessage");
+            }
+            xcb::Event::X(x::Event::ConfigureRequest(_)) => {
+                println!("ConfigureRequest");
+            }
+            xcb::Event::X(x::Event::ConfigureNotify(_)) => {
+                println!("ConfigureNotify");
+            }
+            xcb::Event::X(x::Event::DestroyNotify(_)) => {
+                println!("DestroyNotify");
+            }
+            xcb::Event::X(x::Event::EnterNotify(_)) => {
+                println!("EnterNotify");
+            }
+            xcb::Event::X(x::Event::Expose(_)) => {
+                println!("Expose");
+            }
+            xcb::Event::X(x::Event::FocusIn(_)) => {
+                println!("FocusIn");
+            }
+            xcb::Event::X(x::Event::MappingNotify(_)) => {
+                println!("MappingNotify");
+            }
+            xcb::Event::X(x::Event::MotionNotify(_)) => {
+                //println!("MotionNotify");
+            }
+            xcb::Event::X(x::Event::PropertyNotify(_)) => {
+                println!("PropertyNotify");
             }
             xcb::Event::X(x::Event::ButtonPress(_)) => {
                 println!("Button Press");
