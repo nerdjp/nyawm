@@ -1,4 +1,4 @@
-use xcb::{x::{self, Cw, Window}, randr};
+use xcb::{x::{self, Cw, Window}, xinerama};
 use std::vec::Vec;
 
 const GAPPX: i32 = 5;
@@ -26,62 +26,33 @@ struct Monitor {
 
 impl Monitor {
     pub fn new(conn: &xcb::Connection, root: Window) -> Vec<Monitor> {
-        let res: randr::GetScreenResourcesCurrentReply = conn.wait_for_reply(
-            conn.send_request(&randr::GetScreenResourcesCurrent {
-                window: root,
-            })
+        let screens = conn.wait_for_reply(
+            conn.send_request(
+                &xinerama::QueryScreens{},
+            ),
         ).unwrap();
-
-        println!("{}", res.length());
-        println!("{}", res.outputs().len());
-        for i in 0..res.length() {
-            let output = conn.wait_for_reply(
-                conn.send_request(
-                    &randr::GetOutputInfo {
-                        output: res.outputs()[i as usize],
-                        config_timestamp: res.timestamp(),
-                    }
-                )
-            );
-
-            match output {
-                Ok(output) => {
-                    if output.connection() == randr::Connection::Disconnected {
-                        continue;
-                    }
-                    let crtc = conn.wait_for_reply(
-                        conn.send_request(
-                            &randr::GetCrtcInfo {
-                                crtc: output.crtc(),
-                                config_timestamp: res.config_timestamp(),
-                            },
-                        )
-                    ).unwrap();
-                    println!("x: {}, y: {}, w: {}, h: {}", crtc.x(), crtc.y(), crtc.width(), crtc.height());
+        let mut monitors: Vec<Monitor> = Vec::new();
+        let mut i = 0;
+        for screen in screens.screen_info() {
+            println!("x: {}, y: {}, w: {}, h: {}", screen.x_org, screen.y_org, screen.width, screen.height);
+            monitors.push(Monitor { 
+                number: i,
+                geometry: Rect {
+                    x: screen.x_org as i32,
+                    y: screen.y_org as i32,
+                    w: screen.width as i32,
+                    h: screen.height as i32,
                 },
-                _ => {}
-            }
+                window_area: Rect {
+                    x: screen.x_org as i32,
+                    y: screen.y_org as i32,
+                    w: screen.width as i32,
+                    h: screen.height as i32,
+                },
+                mfact: 0.55, 
+            });
+            i += 1;
         }
-        let monitors = vec![
-            Monitor {
-                number: 0,
-                geometry: 
-                    Rect { 
-                        x: 0,
-                        y: 0,
-                        w: 1280,
-                        h: 720,
-                    },
-                window_area: 
-                    Rect {
-                        x: 0,
-                        y: 0,
-                        w: 1280,
-                        h: 720,
-                    },
-                mfact: 0.55,
-            },
-        ];
         monitors
     }
 }
