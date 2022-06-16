@@ -1,16 +1,13 @@
 mod client;
 mod monitor;
-mod rect;
 mod workspace;
+mod geometry;
 
 use client::Client;
 use monitor::Monitor;
-use rect::Rect;
 use std::vec::Vec;
-use workspace::Workspace;
-use xcb::x::{self, Cw};
 
-const GAPPX: i32 = 5;
+use xcb::x::{self, Cw};
 
 fn setup() -> xcb::Connection {
     let (conn, screen_num) = xcb::Connection::connect(None).unwrap();
@@ -28,7 +25,7 @@ fn setup() -> xcb::Connection {
                 | x::EventMask::PROPERTY_CHANGE
                 | x::EventMask::STRUCTURE_NOTIFY
                 | x::EventMask::SUBSTRUCTURE_NOTIFY
-                | x::EventMask::SUBSTRUCTURE_REDIRECT,
+                | x::EventMask::SUBSTRUCTURE_REDIRECT
         )],
     });
 
@@ -45,35 +42,6 @@ fn setup() -> xcb::Connection {
 fn main() {
     let conn = setup();
     let mut monitors = Monitor::update_geometry(Vec::new(), &conn);
-    monitors[0].workspaces.push(Workspace {
-        num: 0,
-        name: "".to_string(),
-        clients: Vec::new(),
-        sel_client: 0,
-        gappx: 5,
-        geometry: Rect {
-            x: 0,
-            y: 0,
-            w: 1280,
-            h: 720,
-        },
-        mfact: 0.55,
-    });
-    monitors[0].workspaces.push(Workspace {
-        num: 0,
-        name: "".to_string(),
-        clients: Vec::new(),
-        sel_client: 0,
-        gappx: 5,
-        geometry: Rect {
-            x: 0,
-            y: 0,
-            w: 1280,
-            h: 720,
-        },
-        mfact: 0.55,
-    });
-    monitors[0].sel_workspace = 0;
 
     loop {
         match conn.wait_for_event().expect("Erron in main event loop") {
@@ -83,32 +51,17 @@ fn main() {
                 })).unwrap().override_redirect() {
                     continue;
                 }
+
                 let client = Client::new(map.window());
-
-                //TODO Select the sel_workspace
-                let workspace = monitors[0].get_selected_workspace();
-
-                workspace.add_client(client);
-                workspace.tile(&conn);
-
-                conn.send_request(&x::MapWindow {
-                    window: monitors[0].workspaces[0].clients.last().unwrap().window,
+                conn.send_request(&xcb::x::MapWindow {
+                    window: client.window,
                 });
-
-                conn.flush().unwrap();
+                monitors[0].add_client(client, &conn);
             }
             xcb::Event::X(x::Event::UnmapNotify(map)) => {
                 println!("UnmapNotify");
-                let workspace = &mut monitors[0].workspaces[0];
-                let clients = &mut workspace.clients;
-                for i in 0..clients.len() {
-                    if clients[i].window == map.window() {
-                        clients.remove(i);
-                        break;
-                    }
-                }
-                workspace.tile(&conn);
-                conn.flush().unwrap();
+                let client = Client::new(map.window());
+                monitors[0].remove_client(client, &conn);
             }
             xcb::Event::X(x::Event::ClientMessage(_)) => {
                 println!("ClientMessage");
@@ -143,17 +96,8 @@ fn main() {
             xcb::Event::X(x::Event::ButtonPress(_)) => {
                 println!("Button Press");
             }
-            xcb::Event::X(x::Event::KeyPress(key)) => {
+            xcb::Event::X(x::Event::KeyPress(_key)) => {
                 println!("Key Press");
-                if key.detail() == 0x18 {
-                    let monitor = &mut monitors[0];
-                    println!("Toggle");
-                    if monitor.sel_workspace == 0 {
-                        monitor.select_workspace(1, &conn);
-                    } else {
-                        monitor.select_workspace(0, &conn);
-                    }
-                }
             }
             _ => {}
         }

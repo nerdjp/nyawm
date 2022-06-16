@@ -1,9 +1,9 @@
-use crate::rect::Rect;
+use crate::geometry::Geometry;
 use xcb::x::{self, Window};
 
 pub struct Client {
     pub name: String,
-    pub geometry: Rect,
+    pub geometry: Geometry,
     pub window: Window,
     pub border: i32,
     pub isfloating: bool,
@@ -15,7 +15,7 @@ impl Client {
     pub fn new(win: Window) -> Client {
         Client {
             name: "Test".to_string(),
-            geometry: Rect {
+            geometry: Geometry {
                 x: 0,
                 y: 0,
                 w: 0,
@@ -40,7 +40,8 @@ impl Client {
             ],
         });
     }
-    pub fn resize(&mut self, geometry: Rect, conn: &xcb::Connection) {
+
+    pub fn resize(&mut self, geometry: Geometry, conn: &xcb::Connection) {
         self.geometry = geometry;
         conn.send_request(&x::ConfigureWindow {
             window: self.window,
@@ -58,5 +59,11 @@ impl Client {
                 x::Cw::BorderPixel(0xFFFFFF),
             ],
         });
+    }
+}
+
+impl PartialEq for Client {
+    fn eq(&self, other: &Self) -> bool {
+        self.window == other.window
     }
 }
